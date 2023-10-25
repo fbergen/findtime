@@ -1,8 +1,6 @@
 use actix_files as fs;
-use actix_web::{
-    get, middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result,
-};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime};
+use actix_web::{get, web, App, HttpServer, Responder, Result};
+use chrono::DateTime;
 use futures::future::join_all;
 use regex::Regex;
 use reqwest;
@@ -33,12 +31,13 @@ struct CalendyReponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct AvailabilityResponse {
     scheduling_link: String,
-    duration: String,
+    duration: i64,
     availability_timezone: String,
     days: Vec<Day>,
+    title: String,
 }
 
-async fn get_uuid(scheduling_link: &str) -> Result<(String, String), Box<dyn Error>> {
+async fn get_uuid(scheduling_link: &str) -> Result<(String, String, String), Box<dyn Error>> {
     let response = reqwest::get(scheduling_link).await?.text().await?;
 
     let re = Regex::new(r#""uuid":"([^"]+)""#).unwrap();
@@ -53,7 +52,13 @@ async fn get_uuid(scheduling_link: &str) -> Result<(String, String), Box<dyn Err
         None => return Err(Box::<dyn std::error::Error>::from("duration not found")),
     };
 
-    Ok((uuid, duration))
+    let re3 = Regex::new(r#""name":"([^"]+)""#).unwrap();
+    let name = match re3.captures(response.as_str()) {
+        Some(captures) => captures[1].to_string(),
+        None => return Err(Box::<dyn std::error::Error>::from("name not found")),
+    };
+
+    Ok((uuid, duration, name))
 }
 
 async fn fetch_availability(
@@ -61,7 +66,7 @@ async fn fetch_availability(
     start_day: &str,
     end_day: &str,
 ) -> Result<AvailabilityResponse, Box<dyn Error>> {
-    let (uuid, duration) = get_uuid(scheduling_link).await?;
+    let (uuid, duration, name) = get_uuid(scheduling_link).await?;
     println!("UUID: {}", uuid);
     let url: String = format!("https://calendly.com/api/booking/event_types/{}/calendar/range?timezone=Europe%2FBerlin&diagnostics=false&range_start={}&range_end={}", uuid, start_day, end_day);
 
@@ -70,9 +75,10 @@ async fn fetch_availability(
     let cresponse = response.json::<CalendyReponse>().await?;
     Ok(AvailabilityResponse {
         scheduling_link: scheduling_link.to_string(),
-        duration,
+        duration: duration.parse::<i64>().unwrap() * 60 * 1000,
         availability_timezone: cresponse.availability_timezone,
         days: cresponse.days,
+        title: name.clone(),
     })
 }
 
@@ -86,8 +92,8 @@ struct FindTimeRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
     title: String,
-    start: String,
-    end: String,
+    start: i64,
+    end: i64,
     color: String,
 }
 type FindTimeResponse = Vec<Event>;
@@ -99,15 +105,21 @@ fn calendly_to_events(c: AvailabilityResponse, i: usize) -> Vec<Event> {
     for day in &c.days {
         for spot in &day.spots {
             if spot.status == "available" {
+                let start_time = DateTime::parse_from_rfc3339(spot.start_time.as_str())
+                    .unwrap()
+                    .timestamp_millis();
+                let end_time = start_time + c.duration;
                 events.push(Event {
-                    title: "title".to_string(),
-                    start: spot.start_time.clone(),
-                    end: spot.start_time.clone(),
+                    title: c.title.clone(),
+                    start: start_time,
+                    end: end_time,
                     color: COLORS[i % COLORS.len()].to_string(),
                 });
             }
         }
     }
+
+    dedup_events(&mut events);
     events
 }
 
@@ -138,6 +150,25 @@ async fn findtime(r: web::Query<FindTimeRequest>) -> Result<impl Responder> {
         .collect();
 
     Ok(web::Json(responses))
+}
+
+fn dedup_events(events: &mut Vec<Event>) {
+    events.sort_by(|a, b| (a.start, a.end).cmp(&(b.start, b.end)));
+    let mut it: i64 = 0;
+
+    if events.len() < 2 {
+        return;
+    }
+
+    while (it as usize) < events.len() - 2 {
+        let i = it as usize;
+        if events[i].end >= events[i + 1].start || events[i].start == events[i + 1].start {
+            events[i].end = events[i + 1].end;
+            events.remove(i + 1);
+            it -= 1;
+        }
+        it += 1;
+    }
 }
 
 #[get("/")]
