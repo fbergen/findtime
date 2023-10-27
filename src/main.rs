@@ -5,7 +5,7 @@ use futures::future::join_all;
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
+use std::{env, error::Error};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Day {
@@ -99,7 +99,7 @@ struct Event {
 type FindTimeResponse = Vec<Event>;
 
 fn calendly_to_events(c: AvailabilityResponse, i: usize) -> Vec<Event> {
-    const COLORS: [&str; 4] = ["blue", "red", "green", "yellow"];
+    const COLORS: [&str; 4] = ["#9D68AF", "#32B579", "#E67B73", "#E4C441"];
 
     let mut events: FindTimeResponse = Vec::new();
     for day in &c.days {
@@ -178,8 +178,12 @@ async fn index() -> Result<fs::NamedFile> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    let address = env::var("ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    println!("Listening on {}:{}", address, port);
+
     HttpServer::new(|| App::new().service((index, findtime)))
-        .bind("127.0.0.1:8080")?
+        .bind(format!("{}:{}", address, port))?
         .run()
         .await
 }
