@@ -1,10 +1,15 @@
 use actix_files as fs;
 use actix_web::{get, web, App, HttpServer, Responder, Result};
-use chrono::DateTime;
+use chrono::{DateTime, Local};
+use env_logger;
 use futures::future::join_all;
+use log::{info, LevelFilter};
+use rand;
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::time::Instant;
 use std::{env, error::Error};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,8 +42,11 @@ struct AvailabilityResponse {
     title: String,
 }
 
-async fn get_uuid(scheduling_link: &str) -> Result<(String, String, String), Box<dyn Error>> {
-    let response = reqwest::get(scheduling_link).await?.text().await?;
+async fn get_info(
+    client: &reqwest::Client,
+    scheduling_link: &str,
+) -> Result<(String, String, String), Box<dyn Error>> {
+    let response = client.get(scheduling_link).send().await?.text().await?;
 
     let re = Regex::new(r#""uuid":"([^"]+)""#).unwrap();
     let uuid = match re.captures(response.as_str()) {
@@ -62,17 +70,29 @@ async fn get_uuid(scheduling_link: &str) -> Result<(String, String, String), Box
 }
 
 async fn fetch_availability(
+    client: &reqwest::Client,
     scheduling_link: &str,
     start_day: &str,
     end_day: &str,
 ) -> Result<AvailabilityResponse, Box<dyn Error>> {
-    let (uuid, duration, name) = get_uuid(scheduling_link).await?;
-    println!("UUID: {}", uuid);
+    let start_time = Instant::now();
+    let trace = rand::random::<u64>();
+    info!("{} Fetch availability start", trace);
+    let (uuid, duration, name) = get_info(&client, scheduling_link).await?;
+
+    let elapsed_time = start_time.elapsed();
+    info!("{} UUID: {} elapsed time: {:?}", trace, name, elapsed_time);
     let url: String = format!("https://calendly.com/api/booking/event_types/{}/calendar/range?timezone=Europe%2FBerlin&diagnostics=false&range_start={}&range_end={}", uuid, start_day, end_day);
 
-    let response = reqwest::get(url).await?;
+    let response = client.get(url).send().await?;
 
     let cresponse = response.json::<CalendyReponse>().await?;
+    let elapsed_time = start_time.elapsed();
+    info!(
+        "{} Fetch availability end, elapsed time: {:?}",
+        trace, elapsed_time
+    );
+
     Ok(AvailabilityResponse {
         scheduling_link: scheduling_link.to_string(),
         duration: duration.parse::<i64>().unwrap() * 60 * 1000,
@@ -125,29 +145,36 @@ fn calendly_to_events(c: AvailabilityResponse, i: usize) -> Vec<Event> {
 
 #[get("/findtime")]
 async fn findtime(r: web::Query<FindTimeRequest>) -> Result<impl Responder> {
+    let start_time = Instant::now();
+    info!("Findtime start");
     let start_day = DateTime::parse_from_rfc3339(r.start.as_str())
-        .unwrap()
+        .map_err(|err| actix_web::error::ErrorBadRequest(err.to_string()))?
         .format("%Y-%m-%d")
         .to_string();
     let end_day = DateTime::parse_from_rfc3339(r.end.as_str())
-        .unwrap()
+        .map_err(|err| actix_web::error::ErrorBadRequest(err.to_string()))?
         .format("%Y-%m-%d")
         .to_string();
-    println!("start: {}, end: {}", start_day, end_day);
+    info!("start: {}, end: {}", start_day, end_day);
 
     let scheduling_links = &r.q.split(',').collect::<Vec<&str>>();
 
+    let client = reqwest::Client::new();
+
     let futures = scheduling_links
         .iter()
-        .map(|scheduling_link| fetch_availability(scheduling_link, &start_day, &end_day));
+        .map(|scheduling_link| fetch_availability(&client, scheduling_link, &start_day, &end_day));
     let responses: Vec<Event> = join_all(futures)
         .await
         .into_iter()
-        .map(Result::unwrap)
+        .filter_map(Result::ok)
         .enumerate()
         .map(|(i, x)| calendly_to_events(x, i))
         .flatten()
         .collect();
+
+    let elapsed_time = start_time.elapsed();
+    info!("Findtime end, elapsed time: {:?}", elapsed_time);
 
     Ok(web::Json(responses))
 }
@@ -178,9 +205,24 @@ async fn index() -> Result<fs::NamedFile> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] - {}",
+                Local::now().format("%Y-%m-%dT%H:%M:%S%.3f"),
+                record.level(),
+                record.args()
+            )
+        })
+        .filter(None, LevelFilter::Info)
+        .init();
+
+    info!("Main started");
+
     let address = env::var("ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    println!("Listening on {}:{}", address, port);
+    info!("Listening on {}:{}", address, port);
 
     HttpServer::new(|| App::new().service((index, findtime)))
         .bind(format!("{}:{}", address, port))?

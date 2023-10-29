@@ -14,14 +14,15 @@ WORKDIR $BASE_DIR/rust
 COPY Cargo.lock Cargo.toml ./
 
 # This build step will cache the dependencies
-RUN cargo build --release
+# RUN cargo build --release
 
+RUN rm ./src/main.rs
 COPY src ./src
+# Build binaries
+# RUN rm ./target/release/findtime
+RUN cargo build --release
 
 COPY index.html ./index.html
-
-# Build binaries
-RUN cargo build --release
 
 CMD ADDRESS="0.0.0.0" ./target/release/findtime
 # Copy artefacts to output folder

@@ -105,7 +105,6 @@ function dragOverHandler(event) {
     fetch(`/findtime?` + params, { method: 'GET'})
       .then(response => response.json())
       .then(res => {
-          console.log(res);
           addToCache(res, q, info.startStr, info.endStr);
           successCallback(res);
       });
@@ -142,19 +141,6 @@ function dragOverHandler(event) {
       },
       dayMaxEvents: true, // allow "more" link when too many events
 	    events: getEvents,
-    
-    //   {
-    //     url: '/findtime',
-		// extraParams: function() {
-		//   const queryString = window.location.search;
-		//   const urlParams = new URLSearchParams(queryString);
-		//   const q = urlParams.get('q')
-    //   return {q: q };
-    // },
-    // failure: function() {
-    //   alert('there was an error while fetching events!');
-    // },
-    // }
 
     });
 
