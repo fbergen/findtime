@@ -1,72 +1,28 @@
+mod calendly;
+mod google_cal;
+
 use actix_files as fs;
 use actix_web::{get, web, App, HttpServer, Responder, Result};
 use chrono::{DateTime, Local};
 use env_logger;
 use futures::future::join_all;
 use log::{info, LevelFilter};
-use rand;
-use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::time::Instant;
 use std::{env, error::Error};
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Day {
-    date: String,
-    status: String,
-    spots: Vec<Spot>,
-    invitee_events: Vec<String>,
+enum CalendarType {
+    Calendly,
+    Google,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Spot {
-    status: String,
-    start_time: String,
-    invitees_remaining: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CalendyReponse {
-    availability_timezone: String,
-    days: Vec<Day>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct AvailabilityResponse {
-    scheduling_link: String,
-    duration: i64,
-    availability_timezone: String,
-    days: Vec<Day>,
-    title: String,
-}
-
-async fn get_info(
-    client: &reqwest::Client,
-    scheduling_link: &str,
-) -> Result<(String, String, String), Box<dyn Error>> {
-    let response = client.get(scheduling_link).send().await?.text().await?;
-
-    let re = Regex::new(r#""uuid":"([^"]+)""#).unwrap();
-    let uuid = match re.captures(response.as_str()) {
-        Some(captures) => captures[1].to_string(),
-        None => return Err(Box::<dyn std::error::Error>::from("UUID not found")),
-    };
-
-    let re2 = Regex::new(r#""duration":(\d+)"#).unwrap();
-    let duration = match re2.captures(response.as_str()) {
-        Some(captures) => captures[1].to_string(),
-        None => return Err(Box::<dyn std::error::Error>::from("duration not found")),
-    };
-
-    let re3 = Regex::new(r#""name":"([^"]+)""#).unwrap();
-    let name = match re3.captures(response.as_str()) {
-        Some(captures) => captures[1].to_string(),
-        None => return Err(Box::<dyn std::error::Error>::from("name not found")),
-    };
-
-    Ok((uuid, duration, name))
+fn get_calendar_type(scheduling_link: &str) -> CalendarType {
+    match scheduling_link.contains("calendly") {
+        true => CalendarType::Calendly,
+        false => CalendarType::Google,
+    }
 }
 
 async fn fetch_availability(
@@ -74,32 +30,15 @@ async fn fetch_availability(
     scheduling_link: &str,
     start_day: &str,
     end_day: &str,
-) -> Result<AvailabilityResponse, Box<dyn Error>> {
-    let start_time = Instant::now();
-    let trace = rand::random::<u64>();
-    info!("{} Fetch availability start", trace);
-    let (uuid, duration, name) = get_info(&client, scheduling_link).await?;
-
-    let elapsed_time = start_time.elapsed();
-    info!("{} UUID: {} elapsed time: {:?}", trace, name, elapsed_time);
-    let url: String = format!("https://calendly.com/api/booking/event_types/{}/calendar/range?timezone=Europe%2FBerlin&diagnostics=false&range_start={}&range_end={}", uuid, start_day, end_day);
-
-    let response = client.get(url).send().await?;
-
-    let cresponse = response.json::<CalendyReponse>().await?;
-    let elapsed_time = start_time.elapsed();
-    info!(
-        "{} Fetch availability end, elapsed time: {:?}",
-        trace, elapsed_time
-    );
-
-    Ok(AvailabilityResponse {
-        scheduling_link: scheduling_link.to_string(),
-        duration: duration.parse::<i64>().unwrap() * 60 * 1000,
-        availability_timezone: cresponse.availability_timezone,
-        days: cresponse.days,
-        title: name.clone(),
-    })
+) -> Result<FindTimeResponse, Box<dyn Error>> {
+    match get_calendar_type(scheduling_link) {
+        CalendarType::Calendly => {
+            calendly::fetch(client, scheduling_link, start_day, end_day).await
+        }
+        CalendarType::Google => {
+            google_cal::fetch(client, scheduling_link, start_day, end_day).await
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,7 +49,7 @@ struct FindTimeRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Event {
+pub struct Event {
     title: String,
     start: i64,
     end: i64,
@@ -118,33 +57,11 @@ struct Event {
 }
 type FindTimeResponse = Vec<Event>;
 
-fn calendly_to_events(c: AvailabilityResponse, i: usize) -> Vec<Event> {
-    const COLORS: [&str; 4] = ["#9D68AF", "#32B579", "#E67B73", "#E4C441"];
-
-    let mut events: FindTimeResponse = Vec::new();
-    for day in &c.days {
-        for spot in &day.spots {
-            if spot.status == "available" {
-                let start_time = DateTime::parse_from_rfc3339(spot.start_time.as_str())
-                    .unwrap()
-                    .timestamp_millis();
-                let end_time = start_time + c.duration;
-                events.push(Event {
-                    title: c.title.clone(),
-                    start: start_time,
-                    end: end_time,
-                    color: COLORS[i % COLORS.len()].to_string(),
-                });
-            }
-        }
-    }
-
-    dedup_events(&mut events);
-    events
-}
-
 #[get("/findtime")]
-async fn findtime(r: web::Query<FindTimeRequest>) -> Result<impl Responder> {
+async fn findtime(
+    r: web::Query<FindTimeRequest>,
+    client: web::Data<reqwest::Client>,
+) -> Result<impl Responder> {
     let start_time = Instant::now();
     info!("Findtime start");
     let start_day = DateTime::parse_from_rfc3339(r.start.as_str())
@@ -159,17 +76,18 @@ async fn findtime(r: web::Query<FindTimeRequest>) -> Result<impl Responder> {
 
     let scheduling_links = &r.q.split(',').collect::<Vec<&str>>();
 
-    let client = reqwest::Client::new();
-
     let futures = scheduling_links
         .iter()
         .map(|scheduling_link| fetch_availability(&client, scheduling_link, &start_day, &end_day));
     let responses: Vec<Event> = join_all(futures)
         .await
         .into_iter()
-        .filter_map(Result::ok)
+        .filter_map(|r| {
+            r.map_err(|e| info!("Error while fetching {}", e.to_string()))
+                .ok()
+        })
         .enumerate()
-        .map(|(i, x)| calendly_to_events(x, i))
+        .map(|(i, x)| attach_color(x, i))
         .flatten()
         .collect();
 
@@ -179,23 +97,16 @@ async fn findtime(r: web::Query<FindTimeRequest>) -> Result<impl Responder> {
     Ok(web::Json(responses))
 }
 
-fn dedup_events(events: &mut Vec<Event>) {
-    events.sort_by(|a, b| (a.start, a.end).cmp(&(b.start, b.end)));
-    let mut it: i64 = 0;
+fn attach_color(events: FindTimeResponse, i: usize) -> FindTimeResponse {
+    const COLORS: [&str; 4] = ["#9D68AF", "#32B579", "#E67B73", "#E4C441"];
 
-    if events.len() < 2 {
-        return;
-    }
-
-    while (it as usize) < events.len() - 2 {
-        let i = it as usize;
-        if events[i].end >= events[i + 1].start || events[i].start == events[i + 1].start {
-            events[i].end = events[i + 1].end;
-            events.remove(i + 1);
-            it -= 1;
-        }
-        it += 1;
-    }
+    events
+        .into_iter()
+        .map(|event| Event {
+            color: COLORS[i % COLORS.len()].to_string(),
+            ..event
+        })
+        .collect()
 }
 
 #[get("/")]
@@ -224,8 +135,17 @@ async fn main() -> std::io::Result<()> {
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     info!("Listening on {}:{}", address, port);
 
-    HttpServer::new(|| App::new().service((index, findtime)))
-        .bind(format!("{}:{}", address, port))?
-        .run()
-        .await
+    HttpServer::new(|| {
+        App::new()
+            .service((index, findtime))
+            .app_data(web::Data::new(
+                reqwest::ClientBuilder::new()
+                    .cookie_store(true)
+                    .build()
+                    .unwrap(),
+            ))
+    })
+    .bind(format!("{}:{}", address, port))?
+    .run()
+    .await
 }
