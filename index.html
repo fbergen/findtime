@@ -5,6 +5,34 @@
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.9/index.global.min.js'></script>
 <script src='main.js'> </script>
 <style>
+  /* Hide the button on screens wider than 768px */
+/*@media (min-width: 769px) { */
+@media not (pointer:coarse) {
+  #clipboardButton {
+    display: none;
+  }
+}
+
+#clipboardButton {
+  position: absolute;
+  text-align: center;
+  font-size: 2.5em;
+  width: 100%; /* Make the button full width */
+  top: 0; /* Position it at the top of the page */
+  left: 0; /* Align it to the left of the page */
+  padding: 10px 0; /* Add some padding */
+  background-color: #3498db; /* Background color */
+  color: white; /* Text color */
+  border: none; /* Remove border */
+  font-size: 16px; /* Font size */
+  cursor: pointer; /* Cursor type */
+}
+
+body {
+    margin: 0; /* Remove default margin */
+    padding: 0; /* Remove default padding */
+  }
+
 .disabled div {
   filter: blur(1px);
   position: relative;
@@ -20,7 +48,6 @@
     width: 100%;
     height: 100%;
     background-color: rgba(255, 255, 255, 0.5); /* Adjust the transparency as needed */
-    pointer-events: none; /* Allows clicks to pass through the overlay */
 }
 </style>
 
@@ -72,9 +99,12 @@
 
 </style>
 </head>
-<body id="drop-zone" ondrop="dropHandler(event)" ondragover="dragOverHandler(event)">
 
+<body>
+<button id=clipboardButton onclick="clipboardReadHandler()">Add a calendar from clipboard</button>
+<div id="drop-zone" ondrop="dropHandler(event)" ondragover="dragOverHandler(event)">
   <div id='calendar'></div>
 
+</div>
 </body>
 </html>

@@ -17,6 +17,7 @@ function dropHandler(event) {
   }
 }
 
+
 function appendCalendarLink(url) {
   var searchParams = new URLSearchParams(window.location.search);
   var param = searchParams.get("q")
@@ -114,3 +115,20 @@ window.onload = function() {
       document.getElementById('drop-zone').classList.add('disabled');
   }
 };
+
+async function clipboardReadHandler() {
+  try {
+    // Check if the Clipboard API is available
+    if (!navigator.clipboard) {
+      console.log('Clipboard API not available');
+      return;
+    }
+
+    // Try to read the text from the clipboard
+    const text = await navigator.clipboard.readText();
+    appendCalendarLink(text);
+    console.log('Pasted content: ', text);
+  } catch (err) {
+    console.error('Failed to read clipboard contents: ', err);
+  }
+}
