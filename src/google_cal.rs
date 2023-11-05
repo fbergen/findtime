@@ -89,11 +89,14 @@ pub async fn fetch(
         .into_iter()
         .flatten()
         .flatten()
-        .map(|x| Event {
-            title: name.clone(),
-            start: x.0.first().unwrap().parse::<i64>().unwrap() * 1000,
-            end: (x.0.first().unwrap().parse::<i64>().unwrap() + x.1 * 60) * 1000,
-            color: "TO BE FILLED".to_string(),
+        .map(|x| {
+            let start_time_s = x.0.first().unwrap().parse::<i64>().unwrap();
+            Event {
+                title: name.clone(),
+                start: start_time_s * 1000,
+                end: (start_time_s + x.1 * 60) * 1000,
+                color: "TO BE FILLED".to_string(),
+            }
         })
         .collect();
 
