@@ -83,6 +83,11 @@ function getEvents(info, successCallback, failureCallback ) {
 	const urlParams = new URLSearchParams(queryString);
 	const q = urlParams.get('q');
 
+  if (!q) {
+    successCallback([]);
+    return;
+  }
+
   let cached_events = getFromCache(q, info.startStr, info.endStr);
   if (cached_events) {
     successCallback(cached_events);
@@ -97,3 +102,15 @@ function getEvents(info, successCallback, failureCallback ) {
         successCallback(res);
     });
 }
+
+
+function isQueryParamMissing() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return !urlParams.has('q') || urlParams.get('q') == "";
+}
+
+window.onload = function() {
+  if (isQueryParamMissing()) {
+      document.getElementById('drop-zone').classList.add('disabled');
+  }
+};
