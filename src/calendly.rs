@@ -1,6 +1,6 @@
-use crate::Event;
+use crate::{libs::dedup_events, Event};
 use actix_web::Result;
-use chrono::{DateTime, Local};
+use chrono::DateTime;
 use log::info;
 use rand;
 use regex::Regex;
@@ -124,23 +124,4 @@ fn calendly_to_events(c: AvailabilityResponse) -> Vec<Event> {
 
     dedup_events(&mut events);
     events
-}
-
-fn dedup_events(events: &mut Vec<Event>) {
-    events.sort_by(|a, b| (a.start, a.end).cmp(&(b.start, b.end)));
-    let mut it: i64 = 0;
-
-    if events.len() < 2 {
-        return;
-    }
-
-    while (it as usize) < events.len() - 2 {
-        let i = it as usize;
-        if events[i].end >= events[i + 1].start || events[i].start == events[i + 1].start {
-            events[i].end = events[i + 1].end;
-            events.remove(i + 1);
-            it -= 1;
-        }
-        it += 1;
-    }
 }

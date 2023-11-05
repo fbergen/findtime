@@ -1,4 +1,4 @@
-use crate::{Event, FindTimeResponse};
+use crate::{libs::dedup_events, Event, FindTimeResponse};
 use actix_web::Result;
 use chrono::NaiveDate;
 use log::info;
@@ -85,7 +85,7 @@ pub async fn fetch(
         trace, elapsed_time
     );
 
-    let events = gresponse
+    let mut events: Vec<Event> = gresponse
         .into_iter()
         .flatten()
         .flatten()
@@ -97,5 +97,6 @@ pub async fn fetch(
         })
         .collect();
 
+    dedup_events(&mut events);
     Ok(events)
 }

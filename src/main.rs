@@ -1,5 +1,6 @@
 mod calendly;
 mod google_cal;
+pub mod libs;
 
 use actix_files as fs;
 use actix_web::{get, web, App, HttpServer, Responder, Result};
@@ -113,6 +114,10 @@ fn attach_color(events: FindTimeResponse, i: usize) -> FindTimeResponse {
 async fn index() -> Result<fs::NamedFile> {
     Ok(fs::NamedFile::open("index.html")?)
 }
+#[get("/main.js")]
+async fn js() -> Result<fs::NamedFile> {
+    Ok(fs::NamedFile::open("main.js")?)
+}
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -137,7 +142,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(|| {
         App::new()
-            .service((index, findtime))
+            .service((index, js, findtime))
             .app_data(web::Data::new(
                 reqwest::ClientBuilder::new()
                     .cookie_store(true)
