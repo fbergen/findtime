@@ -11,7 +11,7 @@ RUN cargo new --bin rust
 WORKDIR $BASE_DIR/rust
 
 # Copy over the manifests
-COPY Cargo.lock Cargo.toml ./
+COPY Cargo.* ./
 
 # This build step will cache the dependencies
 RUN cargo build --release
@@ -48,4 +48,4 @@ COPY --from=builder  /findtime/rust/target/release/findtime /findtime/
 COPY --from=jsbuilder /build/main.js ./main.js
 COPY index.html ./index.html
 
-CMD ADDRESS="0.0.0.0" ./findtime
+CMD ["/findtime/findtime"]

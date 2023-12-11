@@ -136,7 +136,7 @@ async fn main() -> std::io::Result<()> {
 
     info!("Main started");
 
-    let address = env::var("ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let address = env::var("ADDRESS").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     info!("Listening on {}:{}", address, port);
 
