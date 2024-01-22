@@ -35,12 +35,9 @@ FROM --platform=linux/x86_64 debian:bookworm-slim as libs
 
 FROM scratch 
 
-ENV BASE_DIR=/findtime
-WORKDIR $BASE_DIR
-
 COPY --from=builder  /findtime/rust/target/release/findtime /findtime/
-COPY --from=jsbuilder /build/main.js ./main.js
-COPY index.html ./index.html
+COPY --from=jsbuilder /build/main.js /main.js
+COPY index.html /index.html
 
 COPY --from=libs /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/
 COPY --from=libs /lib/x86_64-linux-gnu/libgcc_s.so.1 /lib/x86_64-linux-gnu/

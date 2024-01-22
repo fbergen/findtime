@@ -112,10 +112,12 @@ fn attach_color(events: FindTimeResponse, i: usize) -> FindTimeResponse {
 
 #[get("/")]
 async fn index() -> Result<fs::NamedFile> {
+    info!("opening index.html");
     Ok(fs::NamedFile::open("index.html")?)
 }
 #[get("/main.js")]
 async fn js() -> Result<fs::NamedFile> {
+    info!("opening main.js");
     Ok(fs::NamedFile::open("main.js")?)
 }
 
