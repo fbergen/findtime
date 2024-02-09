@@ -33,12 +33,15 @@ RUN uglifyjs /build/main.js -o /build/main.js --compress --mangle
 
 FROM --platform=linux/x86_64 debian:bookworm-slim as libs
 
+RUN apt update && apt-get install -y --no-install-suggests --no-install-recommends ca-certificates
+
 FROM scratch 
 
 COPY --from=builder  /findtime/rust/target/release/findtime /findtime/
 COPY --from=jsbuilder /build/main.js /main.js
 COPY index.html /index.html
 
+COPY --from=libs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=libs /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/
 COPY --from=libs /lib/x86_64-linux-gnu/libgcc_s.so.1 /lib/x86_64-linux-gnu/
 COPY --from=libs /lib/x86_64-linux-gnu/libm.so.6 /lib/x86_64-linux-gnu/
